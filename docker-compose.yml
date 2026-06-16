@@ -1,0 +1,6 @@
+services:
+  parking-lot:
+    build: .
+    container_name: parking-lot-demo
+    stdin_open: true
+    tty: true

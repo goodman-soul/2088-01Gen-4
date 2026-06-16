@@ -12,6 +12,7 @@ class ParkingLot:
         self.entrance_open.set()
         self.lock = threading.Lock()
         self.occupied = 0
+        self.parked_cars: set = set()
 
     def log(self, action: str, car_id: str = ""):
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -42,13 +43,15 @@ class ParkingLot:
 
         with self.lock:
             self.occupied += 1
+            self.parked_cars.add(car_id)
         self.log("驶入停车场 ✓", car_id)
 
     def leave(self, car_id: str):
         with self.lock:
-            if self.occupied <= 0:
-                self.log("尝试离开 → 无车辆可离场", car_id)
+            if car_id not in self.parked_cars:
+                self.log("尝试离开 → 未在场，无法离场", car_id)
                 return
+            self.parked_cars.remove(car_id)
             self.occupied -= 1
         self.spaces.release()
         self.log("驶离停车场，释放一个车位", car_id)
@@ -64,9 +67,17 @@ def entrance_worker(lot: ParkingLot, car_ids: list):
         lot.enter(cid)
 
 
-def exit_worker(lot: ParkingLot, car_ids: list):
-    for cid in car_ids:
+def exit_worker(lot: ParkingLot, ghost_cars: list, total_leaves: int):
+    for cid in ghost_cars:
+        time.sleep(random.uniform(0.3, 0.7))
+        lot.leave(cid)
+
+    for _ in range(total_leaves):
         time.sleep(random.uniform(0.8, 2.0))
+        with lot.lock:
+            if not lot.parked_cars:
+                continue
+            cid = random.choice(list(lot.parked_cars))
         lot.leave(cid)
 
 
@@ -82,7 +93,7 @@ def main():
     lot = ParkingLot(capacity)
 
     entering_cars = [f"A{i}" for i in range(1, num_cars + 1)]
-    leaving_cars = entering_cars[:capacity + 3]
+    ghost_cars = [f"G{i}" for i in range(1, 3)]
 
     print("=" * 55, flush=True)
     print(f"  停车场信号量教学程序", flush=True)
@@ -90,6 +101,7 @@ def main():
     print(f"  信号量(Semaphore)初始值 = {capacity}", flush=True)
     print(f"  规则: acquire()获取车位 | release()释放车位", flush=True)
     print(f"  车位数不可能为负 → 信号量保证互斥安全", flush=True)
+    print(f"  进场车辆集合追踪 → 未进场车辆无法离场", flush=True)
     print("=" * 55, flush=True)
     print(flush=True)
 
@@ -97,7 +109,7 @@ def main():
         target=entrance_worker, args=(lot, entering_cars), name="EntranceThread"
     )
     t_exit = threading.Thread(
-        target=exit_worker, args=(lot, leaving_cars), name="ExitThread"
+        target=exit_worker, args=(lot, ghost_cars, capacity + 3), name="ExitThread"
     )
     t_admin = threading.Thread(
         target=admin_worker, args=(lot, 8.0), name="AdminThread"
